@@ -1,24 +1,38 @@
 package org.example;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.io.*;
+import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 
 public class StaffManager {
-    private List<Staff> staffList = new ArrayList<>();
-    private final String filePath = "staff.txt"; // File to store staff data
+    private Connection connection;
 
     public StaffManager() {
-        // Load staff data from file when the system starts
-        loadStaffFromFile();
+        try {
+            // Establish SQLite connection by default
+            connection = DriverManager.getConnection("jdbc:sqlite:icecream_shop.db");
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    // Allow injection of a mock connection for testing
+    public void setConnection(Connection connection) {
+        this.connection = connection;
     }
 
     public void addStaff(Staff staff, Role userRole) {
         if (userRole == Role.MANAGER) {
-            staffList.add(staff);
-            saveStaffToFile(); // Save the updated staff list to the file
+            String sql = "INSERT INTO staff (staffID, name, role, hoursWorked) VALUES (?, ?, ?, ?)";
+            try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+                pstmt.setString(1, staff.getStaffID());
+                pstmt.setString(2, staff.getName());
+                pstmt.setString(3, staff.getRole().toString());
+                pstmt.setInt(4, staff.getHoursWorked());
+                pstmt.executeUpdate();
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
         } else {
             System.out.println("Permission denied. Only managers can add staff.");
         }
@@ -26,8 +40,13 @@ public class StaffManager {
 
     public void deleteStaff(String staffID, Role userRole) {
         if (userRole == Role.MANAGER) {
-            staffList.removeIf(staff -> staff.getStaffID().equals(staffID));
-            saveStaffToFile(); // Save the updated staff list to the file
+            String sql = "DELETE FROM staff WHERE staffID = ?";
+            try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+                pstmt.setString(1, staffID);
+                pstmt.executeUpdate();
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
         } else {
             System.out.println("Permission denied. Only managers can delete staff.");
         }
@@ -35,13 +54,14 @@ public class StaffManager {
 
     public void editStaff(String staffID, String newName, int newHoursWorked, Role userRole) {
         if (userRole == Role.MANAGER) {
-            for (Staff staff : staffList) {
-                if (staff.getStaffID().equals(staffID)) {
-                    staff.setName(newName);
-                    staff.setHoursWorked(newHoursWorked);
-                    saveStaffToFile(); // Save the updated staff list to the file
-                    break;
-                }
+            String sql = "UPDATE staff SET name = ?, hoursWorked = ? WHERE staffID = ?";
+            try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+                pstmt.setString(1, newName);
+                pstmt.setInt(2, newHoursWorked);
+                pstmt.setString(3, staffID);
+                pstmt.executeUpdate();
+            } catch (SQLException e) {
+                e.printStackTrace();
             }
         } else {
             System.out.println("Permission denied. Only managers can edit staff.");
@@ -49,37 +69,20 @@ public class StaffManager {
     }
 
     public List<Staff> getStaffList() {
-        return staffList;
-    }
-
-    // Save staff data to a file
-    private void saveStaffToFile() {
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath))) {
-            for (Staff staff : staffList) {
-                writer.write(staff.getStaffID() + "," + staff.getName() + "," + staff.getRole() + "," + staff.getHoursWorked());
-                writer.newLine();
+        List<Staff> staffList = new ArrayList<>();
+        String sql = "SELECT * FROM staff";
+        try (Statement stmt = connection.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                String staffID = rs.getString("staffID");
+                String name = rs.getString("name");
+                Role role = Role.valueOf(rs.getString("role"));
+                int hoursWorked = rs.getInt("hoursWorked");
+                staffList.add(new Staff(staffID, name, role, hoursWorked));
             }
-        } catch (IOException e) {
+        } catch (SQLException e) {
             e.printStackTrace();
         }
-    }
-
-    // Load staff data from a file
-    private void loadStaffFromFile() {
-        try (BufferedReader reader = new BufferedReader(new FileReader(filePath))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                String[] parts = line.split(",");
-                if (parts.length == 4) {
-                    String staffID = parts[0];
-                    String name = parts[1];
-                    Role role = Role.valueOf(parts[2]);
-                    int hoursWorked = Integer.parseInt(parts[3]);
-                    staffList.add(new Staff(staffID, name, role, hoursWorked));
-                }
-            }
-        } catch (IOException e) {
-            System.out.println("No existing staff data found. Starting fresh.");
-        }
+        return staffList;
     }
 }
